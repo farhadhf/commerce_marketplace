@@ -1,0 +1,11 @@
+name = Commerce Marketplace Order
+description = Creates Store Order order type and splits standard orders into Store orders on checkout complete
+package = Commerce Marketplace
+dependencies[] = commerce_order
+dependencies[] = commerce_line_item
+dependencies[] = commerce_product
+dependencies[] = commerce_store
+dependencies[] = commerce_order
+dependencies[] = commerce_shipping
+configure = admin/commerce/marketplace
+core = 7.x

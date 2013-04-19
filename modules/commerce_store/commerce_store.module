@@ -1,0 +1,50 @@
+<?php
+
+/**
+ * @file
+ * commerce_store module functions.
+ */
+
+
+/**
+ * Implements hook_entity_info_alter().
+ */
+function commerce_store_entity_info_alter(&$entity_info) {
+  $entity_info['commerce_order']['bundles']['commerce_store_order'] = array('label' => t('Store order'));
+//  $entity_info['commerce_store']['access callback'] = 'commerce_store_store_entity_access';
+//  $entity_info['commerce_store']['bundles']['store']['crud']['add']['path'] = 'store/add';
+//  $entity_info['commerce_store']['bundles']['store']['crud']['edit']['path'] = 'store/%/edit';
+//  $entity_info['commerce_store']['bundles']['store']['crud']['delete']['path'] = 'store/%/edit';
+//  $entity_info['commerce_store']['bundles']['store']['crud']['view']['path'] = 'store/%';
+}
+
+
+function commerce_store_entity_presave($entity, $type) {
+  if ($type == 'commerce_store') {
+    $members = array();
+    foreach ($entity->cmp_m_store[LANGUAGE_NONE] as $item) {
+      if (isset($item['target_id'])) {
+        $members[] = $item['target_id'];
+      }
+    }
+    global $user;
+    if (!in_array($user->uid, $members)) {
+      $entity->cmp_m_store[LANGUAGE_NONE][]['target_id'] = $user->uid;
+    }
+  }
+}
+
+function commerce_store_load($id) {
+  return entity_load_single('commerce_store', $id);
+}
+
+function commerce_store_save($store) {
+  if (!$store) {
+    return;
+  }
+  return entity_save('commerce_store', $store);
+}
+/**
+ * Store specific permissions and roles (for members referencing the store
+ * through cmp_m_store field)
+ */

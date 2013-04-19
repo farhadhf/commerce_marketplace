@@ -1,0 +1,22 @@
+<?php
+
+/**
+ * @file
+ * Includes installation hooks and functions for commerce_marketplace.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function commerce_marketplace_install() {
+  $store_ent = new EntityType();
+  $store_ent->name = 'commerce_store';
+
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function commerce_marketplace_uninstall() {
+
+}

@@ -1,0 +1,528 @@
+<?php
+
+/**
+ *  - New module for in-store permissions for referenced users. (commerce_marketplace_permissions)
+ *    - A new table store_role {store_id, role_id, role_name}
+ *    - A new table store_user_role {store_id, user_id, role_id}
+ *    - a new table store_permission_role {role_id, permission}
+ *    - A page where the store owner can create new Roles.
+ *    - A new page which lists permissions (like Drupal core user permissions).
+ */
+
+/**
+ * The role name of store non-members.
+ */
+define('COMMERCE_STORE_ANONYMOUS_ROLE', 'non-member');
+
+/**
+ * The role name of store member.
+ */
+define('COMMERCE_STORE_AUTHENTICATED_ROLE', 'member');
+
+/**
+ * The role name of store administrator.
+ */
+define('COMMERCE_STORE_ADMINISTRATOR_ROLE', 'administrator');
+
+/**
+ * Implements hook_ctools_plugin_directory().
+ */
+function commerce_store_access_ctools_plugin_directory($module, $plugin) {
+  if ($module == 'entityreference') {
+    return 'plugins/' . $plugin;
+  }
+}
+
+/**
+ * Implements hook_permission().
+ */
+function commerce_store_access_permission() {
+  return array(
+    'create new stores' => array(
+      'title' => t('Create new commerce stores'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_entity_info_alter().
+ */
+function commerce_store_access_entity_info_alter(&$entity_info) {
+  $entity_info['commerce_store']['access callback'] = 'commerce_store_access_store_access_callback';
+  $entity_info['commerce_order']['access callback'] = 'commerce_store_access_order_access_callback';
+}
+
+/**
+ * Access callback for commerce_store entities.
+ */
+function commerce_store_access_store_access_callback($op, $entity = NULL, $account = NULL) {
+  if (!$account) {
+    global $user;
+    $account = $user;
+  }
+  switch($op){
+    case 'view':
+      // view check
+      return commerce_store_access_user_access('view store page', $entity, $account) || $entity->uid == $account->uid;
+      break;
+
+    case 'create':
+      // create check
+      return user_access('create new stores', $account);
+      break;
+
+    case 'update':
+      // update check
+      return commerce_store_access_user_access('edit store information', $entity, $account) || $entity->uid == $account->uid;
+      break;
+
+    case 'delete':
+      // delete check
+      // Do not allow deleting stores.
+      return FALSE;
+      break;
+  }
+  return FALSE;
+}
+
+
+function commerce_store_access_order_access_callback($op, $entity = NULL, $account = NULL) {
+  if (!$account) {
+    global $user;
+    $account = $user;
+  }
+  if ($entity && $entity->type == 'commerce_store_order') {
+    switch ($op) {
+      case 'view':
+        commerce_store_access_user_access('view store orders', $entity, $account);
+        break;
+
+      case 'update':
+        commerce_store_access_user_access('edit store orders', $entity, $account);
+        break;
+
+      case 'delete':
+        return FALSE;
+        break;
+
+      case 'create':
+        return TRUE;
+        break;
+      default:
+        break;
+    }
+  }
+  else {
+    return commerce_entity_access($op, $entity, $account, 'commerce_order');
+  }
+}
+
+/**
+ * Commerce store access control callback.
+ */
+function commerce_store_access_user_access($permission, $store, $account = NULL) {
+  if (!$account) {
+    global $user;
+    $account = $user;
+  }
+  if (!$store) {
+    return FALSE;
+  }
+  $query = db_select('commerce_store_user_role', 'ur')
+          ->condition('ur.uid', $account->uid);
+  $query->innerJoin('commerce_store_role', 'r', 'r.rid = ur.rid');
+  // @todo, DO NOT HARDCODE THE STORE ID TO 0! It has security implications.
+  $query->condition('r.store_id', $store->id)->fields('r', array('rid'));
+  $user_store_roles = $query->execute()->fetchAll(PDO::FETCH_COLUMN, 'rid');
+  if (!$user_store_roles) {
+    $user_store_roles = array(1);
+  }
+
+  $role_permissions = db_select('commerce_store_role_permission', 'p')
+          ->condition('rid', $user_store_roles)
+          ->fields('p', array('permission'))->execute()->fetchAll(PDO::FETCH_COLUMN, 'permission');
+  if (in_array($permission, $role_permissions)) {
+    return TRUE;
+  }
+  return FALSE;
+}
+
+function commerce_store_access_store_roles($store_id) {
+  $roles = db_select('commerce_store_role', 'r')
+          ->condition('r.store_id', array($store_id, 0))
+          ->fields('r', array('rid', 'name'))->execute()->fetchAllKeyed();
+  return $roles;
+}
+
+function commerce_store_access_get_role($rid) {
+  $role = db_select('commerce_store_role', 'r')->condition('rid', $rid)->execute()->fetchField();
+  return $role;
+}
+
+function commerce_store_access_get_user_roles($account, $store) {
+  $query = db_select('commerce_store_user_role', 'ur')
+          ->condition('ur.uid', $account->uid);
+  $query->innerJoin('commerce_store_role', 'r', 'r.rid = ur.rid');
+  $query->condition('r.store_id', array($store->id));
+  $query->condition('r.name', COMMERCE_STORE_ANONYMOUS_ROLE, '!=');
+  $roles = $query->fields('r', array('rid', 'name'))->execute()->fetchAllKeyed();
+  if (empty($roles)) {
+    $roles = array(1 => COMMERCE_STORE_ANONYMOUS_ROLE);
+  }
+  return $roles;
+}
+
+/**
+ * Implements hook_menu().
+ */
+function commerce_store_access_menu() {
+  $items = array();
+  // Store members and permissions stuff.
+  $items['commerce_store/store/%commerce_store/people'] = array(
+    'title' => 'Members',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_store_access_people_page', 2),
+    'access callback' => 'commerce_store_access_people_page_access',
+    'access arguments' => array(2),
+    'file' => 'includes/commerce_store_access.pages.inc',
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 5,
+  );
+  $items['commerce_store/store/%commerce_store/people/list'] = array(
+    'title' => 'List',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+  $items['commerce_store/store/%commerce_store/people/add'] = array(
+    'title' => 'Add',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_store_access_add_people_page', 2),
+    'access callback' => 'commerce_store_access_add_people_page_access',
+    'access arguments' => array(2),
+    'file' => 'includes/commerce_store_access.pages.inc',
+    'type' => MENU_LOCAL_ACTION,
+  );
+  $items['commerce_store/store/%commerce_store/people/permissions'] = array(
+    'title' => 'Permissions',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_store_access_perms_page', 2),
+    'access callback' => 'commerce_store_access_perms_page_access',
+    'access arguments' => array(2),
+    'file' => 'includes/commerce_store_access.pages.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items['commerce_store/store/%commerce_store/people/roles'] = array(
+    'title' => 'Roles',
+    'page callback' => 'commerce_store_access_roles_page',
+    'page arguments' => array(2),
+    'access callback' => 'commerce_store_access_roles_page_access',
+    'access arguments' => array(2),
+    'file' => 'includes/commerce_store_access.pages.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items['commerce_store/store/%commerce_store/people/roles/add'] = array(
+    'title' => 'Add new role',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_store_access_add_role_page', 2),
+    'access callback' => 'commerce_store_access_add_role_page_access',
+    'access arguments' => array(2),
+    'file' => 'includes/commerce_store_access.pages.inc',
+    'type' => MENU_LOCAL_ACTION,
+  );
+  $items['commerce_store/store/%commerce_store/people/roles/%/edit'] = array(
+    'title' => 'Edit role',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_store_access_add_role_page', 2, 5),
+    'access callback' => 'commerce_store_access_edit_role_page_access',
+    'access arguments' => array(2, 5),
+    'file' => 'includes/commerce_store_access.pages.inc',
+  );
+  return $items;
+}
+
+function commerce_store_access_people_page_access($store) {
+  global $user;
+  return $store->uid == $user->uid || commerce_store_access_user_access('administer commerce_store members', $store, $user);
+}
+
+function commerce_store_access_add_people_page_access($store) {
+  global $user;
+  return $store->uid == $user->uid || commerce_store_access_user_access('add new members to commerce_store', $store, $user);
+}
+
+function commerce_store_access_perms_page_access($store) {
+  global $user;
+  return $store->uid == $user->uid || commerce_store_access_user_access('change commerce_store role permissions', $store, $user);
+}
+
+function commerce_store_access_roles_page_access($store) {
+  global $user;
+  return $store->uid == $user->uid || commerce_store_access_user_access('view commerce_store roles overview page', $store, $user);
+}
+
+function commerce_store_access_add_role_page_access($store) {
+  global $user;
+  return $store->uid == $user->uid || commerce_store_access_user_access('add new role to commerce_store', $store, $user);
+}
+
+function commerce_store_access_edit_role_page_access($store, $rid) {
+  global $user;
+  $role = commerce_store_access_get_role($rid);
+  if (!$role) {
+    return FALSE;
+  }
+  if ($role->store_id != $store->id) {
+    return FALSE;
+  }
+  return $store->uid == $user->uid || commerce_store_access_user_access('edit commerce_store roles', $store, $user);
+}
+
+/**
+ * Implements hook_commerce_store_access_permission().
+ */
+function commerce_store_access_commerce_store_access_permission() {
+  return array(
+    'administer commerce_store members' => array(
+      'title' => t('Administer store members'),
+      'restrict' => TRUE,
+      'roles' => array(COMMERCE_STORE_ADMINISTRATOR_ROLE),
+    ),
+    'edit store information' => array(
+      'title' => t('Edit store'),
+      'restrict' => TRUE,
+      'roles' => array(COMMERCE_STORE_ADMINISTRATOR_ROLE),
+    ),
+    'view store page' => array(
+      'title' => t('View store page'),
+      'roles' => array(COMMERCE_STORE_ADMINISTRATOR_ROLE, COMMERCE_STORE_ANONYMOUS_ROLE, COMMERCE_STORE_AUTHENTICATED_ROLE),
+    ),
+    'add new members to commerce_store' => array(
+      'title' => t('Add new members to the store'),
+      'restrict' => TRUE,
+      'roles' => array(COMMERCE_STORE_ADMINISTRATOR_ROLE),
+    ),
+    'change commerce_store role permissions' => array(
+      'title' => t('Change permissions for store roles'),
+      'restrict' => TRUE,
+      'roles' => array(COMMERCE_STORE_ADMINISTRATOR_ROLE),
+    ),
+    'view commerce_store roles overview page' => array(
+      'title' => t('View store roles list'),
+      'roles' => array(COMMERCE_STORE_ADMINISTRATOR_ROLE),
+    ),
+    'add new role to commerce_store' => array(
+      'title' => t('Create new store roles'),
+      'restrict' => TRUE,
+      'roles' => array(COMMERCE_STORE_ADMINISTRATOR_ROLE),
+    ),
+    'edit commerce_store roles' => array(
+      'title' => t('Edit store roles'),
+      'restrict' => TRUE,
+      'roles' => array(COMMERCE_STORE_ADMINISTRATOR_ROLE),
+    ),
+    'add products to the store' => array(
+      'title' => t('Create products for the store'),
+      'roles' => array(COMMERCE_STORE_ADMINISTRATOR_ROLE, COMMERCE_STORE_AUTHENTICATED_ROLE),
+    ),
+    'view store orders' => array(
+      'title' => t('View store orders'),
+      'roles' => array(COMMERCE_STORE_AUTHENTICATED_ROLE, COMMERCE_STORE_ADMINISTRATOR_ROLE),
+    ),
+    'edit store orders' => array(
+      'title' => t('Edit store orders'),
+      'roles' => array(COMMERCE_STORE_ADMINISTRATOR_ROLE, COMMERCE_STORE_AUTHENTICATED_ROLE),
+    ),
+  );
+}
+
+function commerce_store_access_get_permissions() {
+  $perms = &drupal_static(__FUNCTION__, array());
+  if (!empty($perms)) {
+    return $perms;
+  }
+
+  foreach (module_implements('commerce_store_access_permission') as $module) {
+    if ($permissions = module_invoke($module, 'commerce_store_access_permission')) {
+      foreach ($permissions as $key => $perm) {
+        $permissions[$key] += array(
+          // Initialize the roles key, if other modules haven't set it
+          // explicetly. This means the permissions can apply to anonymous and
+          // authenticated members as-well.
+          'roles' => array(COMMERCE_STORE_ANONYMOUS_ROLE, COMMERCE_STORE_AUTHENTICATED_ROLE),
+          'module' => $module,
+        );
+      }
+      $perms = array_merge($perms, $permissions);
+    }
+  }
+
+  // Allow other modules to alter the permissions.
+  drupal_alter('commerce_store_access_permission', $perms);
+
+  return $perms;
+}
+
+
+
+/**
+ * Code borrowed from OG.
+ * Change permissions for a user role.
+ *
+ * This function may be used to grant and revoke multiple permissions at once.
+ * For example, when a form exposes checkboxes to configure permissions for a
+ * role, the submitted values may be directly passed on in a form submit
+ * handler.
+ *
+ * @param $rid
+ *   The ID of a store user role to alter.
+ * @param $permissions
+ *   An array of permissions, where the key holds the permission name and the
+ *   value is an integer or boolean that determines whether to grant or revoke
+ *   the permission:
+ *   @code
+ *     array(
+ *       'edit store' => 0,
+ *       'administer store' => 1,
+ *     )
+ *   @endcode
+ *   Existing permissions are not changed, unless specified in $permissions.
+ *
+ * @see commerce_store_access_role_grant_permissions()
+ * @see commerce_store_access_role_revoke_permissions()
+ */
+function commerce_store_access_role_change_permissions($rid, $permissions = array()) {
+  // Grant new permissions for the role.
+  $grant = array_filter($permissions);
+  if (!empty($grant)) {
+    commerce_store_access_role_grant_permissions($rid, array_keys($grant));
+  }
+  // Revoke permissions for the role.
+  $revoke = array_diff_assoc($permissions, $grant);
+  if (!empty($revoke)) {
+    commerce_store_access_role_revoke_permissions($rid, array_keys($revoke));
+  }
+}
+
+/**
+ * Code borrowed from OG.
+ * Grant permissions to a user role.
+ */
+function commerce_store_access_role_grant_permissions($rid, array $permissions = array()) {
+  $modules = array();
+  foreach (commerce_store_access_get_permissions() as $name => $value) {
+    $modules[$name] = $value['module'];
+  }
+  // Grant new permissions for the role.
+  foreach ($permissions as $name) {
+    // Prevent WSOD, if the permission name is wrong, and we can't find its
+    // module.
+    if (!empty($modules[$name])) {
+      db_merge('commerce_store_role_permission')
+        ->key(array(
+          'rid' => $rid,
+          'permission' => $name,
+          'module' => $modules[$name],
+        ))
+        ->execute();
+    }
+  }
+}
+
+/**
+ * Code borrowed from OG.
+ * Revoke permissions from a user role.
+ */
+function commerce_store_access_role_revoke_permissions($rid, array $permissions = array()) {
+  // Revoke permissions for the role.
+  db_delete('commerce_store_role_permission')
+    ->condition('rid', $rid)
+    ->condition('permission', $permissions, 'IN')
+    ->execute();
+}
+
+function commerce_store_access_role_permissions($roles) {
+  $rids = array_keys($roles);
+  $permissions = array();
+  $query = db_select('commerce_store_role_permission', 'rp')
+          ->condition('rid', $rids)
+          ->fields('rp', array('rid', 'permission'))->execute();
+  while ($row = $query->fetch()) {
+    $permissions[$row->rid][$row->permission] = TRUE;
+  }
+  return $permissions;
+}
+
+/**
+ * Implements hook_entity_insert().
+ */
+function commerce_store_access_entity_insert($entity, $type) {
+  if ($type == 'commerce_store') {
+    $member_rid = db_insert('commerce_store_role')->fields(array('name' => COMMERCE_STORE_AUTHENTICATED_ROLE, 'store_id' => $entity->id))->execute();
+    $admin_rid = db_insert('commerce_store_role')->fields(array('name' => COMMERCE_STORE_ADMINISTRATOR_ROLE, 'store_id' => $entity->id))->execute();
+
+    db_insert('commerce_store_user_role')->fields(array('uid' => $entity->uid, 'rid' => $admin_rid))->execute();
+    db_insert('commerce_store_user_role')->fields(array('uid' => $entity->uid, 'rid' => $member_rid))->execute();
+    commerce_store_access_rebuild_permissions(array($entity->id));
+  }
+}
+
+/**
+ * Rebuilds commerce_store_access permissions.
+ */
+function commerce_store_access_rebuild_permissions($stores = array()) {
+  $permissions = commerce_store_access_get_permissions();
+  $role_perm = array();
+  if (empty($stores)) {
+    $stores = db_select('eck_commerce_store', 's')->fields('s', array('id'))->execute()->fetchAll(PDO::FETCH_COLUMN, 'id');
+  }
+  foreach ($stores as $store_id) {
+    foreach ($permissions as $perm => $info) {
+      foreach($info['roles'] as $role_name) {
+        $rid = commerce_store_access_get_store_role_id($role_name, $store_id);
+        $role_perm[$rid][$perm] = TRUE;
+      }
+    }
+    foreach ($role_perm as $rid => $perms) {
+      commerce_store_access_role_change_permissions($rid, $perms);
+    }
+  }
+}
+
+function commerce_store_access_get_store_role_id($role, $store_id) {
+  $query = db_select('commerce_store_role', 'r')
+          ->condition('r.name', $role)
+          ->condition('r.store_id', $store_id);
+
+  return $query->fields('r', array('rid'))->execute()->fetchField();
+}
+
+/**
+ * Implement hook_theme().
+ */
+function commerce_store_access_theme() {
+  return array(
+    'commerce_store_access_perms_page' => array(
+      'render element' => 'form',
+      'file' => 'includes/commerce_store_access.pages.inc',
+    ),
+  );
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+//function commerce_store_access_form_alter($form, $form_state, $form_id) {
+//  // Add validation callbacks to the product and product display node forms.
+//  if (strpos($form_id, '_node_form') !== FALSE) {
+//    $form['#validate'][] = 'commerce_store_node_validate';
+//  }
+//  else {
+//    dsm($form_id);
+//  }
+//}
+
+/**
+ * Implements hook_flush_caches().
+ */
+function commerce_store_access_flush_caches() {
+  commerce_store_access_rebuild_permissions();
+}

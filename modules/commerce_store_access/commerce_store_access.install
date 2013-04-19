@@ -1,0 +1,134 @@
+<?php
+
+/*
+ * To change this template, choose Tools | Templates
+ * and open the template in the editor.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function commerce_store_access_install() {
+  // Add default store roles (member, non-member, administrator).
+  db_insert('commerce_store_role')->fields(array('name' => COMMERCE_STORE_ANONYMOUS_ROLE))->execute();
+  commerce_store_access_rebuild_permissions();
+}
+
+/**
+ * Implements hook_schema().
+ */
+function commerce_store_access_schema() {
+  $schema = array();
+  $schema['commerce_store_role'] = array(
+    'description' => 'Stores user roles.',
+    'fields' => array(
+      'rid' => array(
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Primary Key: Unique role ID.',
+      ),
+      'store_id' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => FALSE,
+        'default' => 0,
+        'description' => 'Promary key: {eck_commerce_store}.id for commerce_store.'
+      ),
+      'name' => array(
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Unique role name.',
+        'translatable' => TRUE,
+      ),
+    ),
+    'unique keys' => array(
+      'name_store_id' => array('name', 'store_id'),
+    ),
+    'indexes' => array(
+      'store_id' => array('store_id'),
+    ),
+    'primary key' => array('rid'),
+  );
+
+  $schema['commerce_store_user_role'] = array(
+    'description' => 'Maps users to roles.',
+    'fields' => array(
+      'uid' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Primary Key: {users}.uid for user.',
+      ),
+      'rid' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Primary Key: {role}.rid for role.',
+      ),
+    ),
+    'primary key' => array('uid', 'rid'),
+    'indexes' => array(
+      'rid' => array('rid'),
+    ),
+    'foreign keys' => array(
+      'user' => array(
+        'table' => 'users',
+        'columns' => array('uid' => 'uid'),
+      ),
+      'role' => array(
+        'table' => 'commerce_store_role',
+        'columns' => array('rid' => 'rid'),
+      ),
+    ),
+  );
+
+  $schema['commerce_store_role_permission'] = array(
+    'description' => 'Stores the permissions assigned to user roles.',
+    'fields' => array(
+      'rid' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Foreign Key: {role}.rid.',
+      ),
+      'permission' => array(
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'A single permission granted to the role identified by rid.',
+      ),
+      'module' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => "The module declaring the permission.",
+      ),
+    ),
+    'primary key' => array('rid', 'permission'),
+    'indexes' => array(
+      'permission' => array('permission'),
+    ),
+    'foreign keys' => array(
+      'role' => array(
+        'table' => 'roles',
+        'columns' => array('rid' => 'rid'),
+      ),
+    ),
+  );
+  return $schema;
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function commerce_store_access_uninstall() {
+  drupal_uninstall_schema('commerce_store_access');
+}
+

@@ -1,0 +1,16 @@
+<?php
+
+/**
+ * @file
+ * commerce_store_order installation functions.
+ */
+
+function commerce_marketplace_order_install() {
+  commerce_order_configure_order_type('commerce_marketplace_order');
+  $profile_types = commerce_shipping_commerce_customer_profile_type_info();
+  $profile_type = $profile_types['shipping'];
+  commerce_order_configure_customer_profile_type($profile_type['type'], $profile_type['name'], 'commerce_marketplace_order');
+}
+
+
+

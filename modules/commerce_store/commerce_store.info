@@ -1,0 +1,9 @@
+name = Commerce Store
+description = Creates the commerce_store entity type used in Commerce Marketplace
+package = Commerce Marketplace
+dependencies[] = eck
+dependencies[] = entityreference
+dependencies[] = commerce_order
+dependencies[] = commerce_shipping
+configure = admin/commerce/marketplace
+core = 7.x

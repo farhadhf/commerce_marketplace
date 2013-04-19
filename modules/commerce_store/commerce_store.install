@@ -1,0 +1,155 @@
+<?php
+
+/**
+ * @file
+ * Includes installation hooks and functions for commerce_store.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function commerce_store_install() {
+  $store_ent = new EntityType();
+  $store_ent->name = 'commerce_store';
+  $store_ent->label = 'Commerce Store';
+  $store_ent->addProperty('title', 'Title', 'text', 'title');
+  $store_ent->addProperty('uid', 'Owner User ID', 'positive_integer', 'author');
+  $store_ent->addProperty('created', 'Created', 'positive_integer', 'created');
+  $store_ent->addProperty('changed', 'Changed', 'positive_integer', 'changed');
+  $store_ent->save();
+
+  $bundle = new Bundle();
+  $bundle->name = 'store';
+  $bundle->label = 'Store';
+  $bundle->entity_type = 'commerce_store';
+  $bundle->save();
+
+  // This is a workaround for fixing http://drupal.org/node/1365602
+  // @TODO: Remove this after the issue is fixed.
+  drupal_get_schema('eck_commerce_auction_bid', TRUE);
+
+  // @TODO: Add some default fields to the store entity.
+
+  $t = get_t();
+  $types = commerce_product_types();
+
+  // Create a field that will be used to reference an store from products.
+  $field = field_info_field('cmp_store');
+  if (!$field) {
+    field_create_field(array(
+      'field_name' => 'cmp_store',
+      'type' => 'entityreference',
+      'cardinality' => 1,
+      'settings' => array(
+        'handler' => 'commerce_store_access_behavior',
+        'target_type' => 'commerce_store',
+      ),
+    ));
+  }
+  foreach ($types as $type => $obj) {
+    $instance = field_info_instance('commerce_product', 'cmp_store', $type);
+    if (!$instance) {
+      field_create_instance(array(
+        'field_name' => 'cmp_store',
+        'entity_type' => 'commerce_product',
+        'bundle' => $type,
+        'label' => $t('Store'),
+      ));
+    }
+  }
+
+  /**
+   * Create a field that will be used to reference users from stores.
+   * When an user is referenced from a store, it means that the user is a
+   * member of that store.
+   */
+  $field = field_info_field('cmp_m_store');
+  if (!$field) {
+    field_create_field(array(
+      'field_name' => 'cmp_m_store',
+      'type' => 'entityreference',
+      'cardinality' => FIELD_CARDINALITY_UNLIMITED,
+      'settings' => array(
+        'target_type' => 'user',
+      ),
+    ));
+  }
+  $instance = field_info_instance('commerce_store', 'cmp_m_store', 'store');
+  if (!$instance) {
+    field_create_instance(array(
+      'field_name' => 'cmp_m_store',
+      'entity_type' => 'commerce_store',
+      'bundle' => 'store',
+      'label' => $t('members'),
+    ));
+  }
+
+  commerce_order_configure_order_type('commerce_store_order');
+  $profile_types = commerce_shipping_commerce_customer_profile_type_info();
+  $profile_type = $profile_types['shipping'];
+  commerce_order_configure_customer_profile_type($profile_type['type'], $profile_type['name'], 'commerce_store_order');
+  $field = field_info_field('cmp_o_store');
+  if (!$field) {
+    field_create_field(array(
+      'field_name' => 'cmp_o_store',
+      'type' => 'entityreference',
+      'cardinality' => 1,
+      'settings' => array(
+        'target_type' => 'commerce_store',
+      ),
+    ));
+  }
+  $t = get_t();
+  $instance = field_info_instance('commerce_order', 'cmp_o_store', 'commerce_store_order');
+  if (!$instance) {
+    field_create_instance(array(
+      'field_name' => 'cmp_o_store',
+      'entity_type' => 'commerce_order',
+      'bundle' => 'commerce_store_order',
+      'label' => $t('Store'),
+    ));
+  }
+  $field = field_info_field('cmp_order');
+  if (!$field) {
+    field_create_field(array(
+      'field_name' => 'cmp_order',
+      'type' => 'entityreference',
+      'cardinality' => 1,
+      'settings' => array(
+        'target_type' => 'commerce_order',
+      ),
+    ));
+  }
+  $instance = field_info_instance('commerce_order', 'cmp_order', 'commerce_store_order');
+  if (!$instance) {
+    field_create_instance(array(
+      'field_name' => 'cmp_order',
+      'entity_type' => 'commerce_order',
+      'bundle' => 'commerce_store_order',
+      'label' => $t('Original Order'),
+    ));
+  }
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function commerce_store_uninstall() {
+  module_load_include('inc', 'eck', 'eck.entity_type');
+  $entity_type = EntityType::loadByName('commerce_store');
+  if ($entity_type) {
+    eck__entity_type__delete($entity_type);
+  }
+  $types = commerce_product_types();
+  foreach($types as $type => $obj) {
+    $instance = field_info_instance('commerce_product', 'cmp_store', $type);
+    if ($instance) {
+      field_delete_instance($instance);
+    }
+  }
+  $instance = field_info_instance('user', 'cmp_m_store', 'user');
+  if ($instance) {
+    field_delete_instance($instance);
+  }
+}
+

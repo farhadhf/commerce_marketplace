@@ -1,0 +1,15 @@
+name = Commerce Marketplace
+description = Marketplace functionality on top of Drupal Commerce
+package = Commerce Marketplace
+dependencies[] = commerce
+dependencies[] = commerce_price
+dependencies[] = commerce_cart
+dependencies[] = commerce_order
+dependencies[] = commerce_store
+dependencies[] = commerce_store_access
+dependencies[] = commerce_marketplace_order
+dependencies[] = commerce_product_reference
+dependencies[] = eck
+dependencies[] = entityreference
+configure = admin/commerce/marketplace
+core = 7.x

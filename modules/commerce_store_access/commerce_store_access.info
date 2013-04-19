@@ -1,0 +1,8 @@
+name = Commerce Store Permissions
+description = Allows store-level permissions and roles to be assigned to store members.
+package = Commerce Marketplace
+dependencies[] = eck
+dependencies[] = entityreference
+dependencies[] = commerce_store
+configure = admin/commerce/marketplace
+core = 7.x

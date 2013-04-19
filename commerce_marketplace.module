@@ -1,0 +1,154 @@
+<?php
+
+
+/**
+ * @file
+ * Implements general reporting functions for commerce_marketplace.
+ * @todo Add flat rate shipping method support.
+ * @todo Implement hook_node_access for products in commerce_store_access module.
+ *       Allow store members with sufficient permissions to edit products created by other members.
+ * @todo Fork commerce_funds and make it work with commerce_marketplace? (commerce_marketplace_funds)
+ * @todo Test the module.
+ * @todo Write Documentation and comment the code.
+ */
+
+/**
+ * Implements hook_permission().
+ */
+function commerce_marketplace_permission() {
+  return array(
+    'view own stores' => array(
+      'title' => 'View own stores',
+    ),
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function commerce_marketplace_menu() {
+  $items['commerce_store/store/%commerce_store/sales'] = array(
+    'title' => 'Sales',
+    'page callback' => 'commerce_marketplace_sales',
+    'page arguments' => array(2),
+    'access callback' => 'commerce_store_access_user_access',
+    'access arguments' => array('view store orders', 2),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 5,
+  );
+  $items['commerce_store/store/%commerce_store/sales/%commerce_order'] = array(
+    'title callback' => 'commerce_marketplace_order_title',
+    'title arguments' => array(4),
+    'page callback' => 'commerce_marketplace_view_order',
+    'page arguments' => array(4),
+    'access callback' => 'commerce_marketplace_order_access',
+    'access arguments' => array(2, 4, 'view store orders'),
+  );
+  $items['commerce_store/store/%commerce_store/sales/%commerce_order/edit'] = array(
+    'title callback' => 'commerce_marketplace_order_title',
+    'title arguments' => array(4),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_order_order_form', 4),
+    'access callback' => 'commerce_marketplace_order_access',
+    'access arguments' => array(2, 4, 'edit store orders'),
+  );
+  $items['commerce_store/store/%commerce_store/products'] = array(
+    'title callback' => 'commerce_marketplace_store_products_page_title',
+    'title arguments' => array(2),
+    'page callback' => 'commerce_marketplace_store_products',
+    'page arguments' => array(2),
+    'access callback' => 'commerce_store_access_user_access',
+    'access arguments' => array('view store page', 2),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 4,
+  );
+  $items['user/%user/stores'] = array(
+    'title' => 'Stores',
+    'page callback' => 'commerce_marketplace_user_stores',
+    'page arguments' => array(1),
+    'access callback' => 'commerce_marketplace_user_stores_access',
+    'access arguments' => array(1),
+    'type' => MENU_LOCAL_TASK,
+  );
+  return $items;
+}
+
+/**
+ * Title callback for order view page.
+ */
+function commerce_marketplace_order_title($order) {
+  return t('Order @id', array('@id' => $order->order_id));
+}
+
+/**
+ * Title callback for store products page.
+ */
+function commerce_marketplace_store_products_page_title($store) {
+  return t("@store's products", array('@store' => $store->title));
+}
+
+/**
+ * Access callback for viewing the store orders.
+ */
+function commerce_marketplace_order_access($store, $order, $permission) {
+  $cmp_store = field_get_items('commerce_order', $order, 'cmp_o_store');
+  if (!$cmp_store) {
+    return FALSE;
+  }
+  return $cmp_store[0]['target_id'] == $store->id && commerce_store_access_user_access($permission, $store);
+}
+
+/**
+ * Access callback for viewing list of own stores.
+ */
+function commerce_marketplace_user_stores_access($account) {
+  global $user;
+  return user_access('view own stores', $account) && $account-> uid === $user->uid;
+}
+
+/**
+ * Page callback for showing own stores list.
+ */
+function commerce_marketplace_user_stores($user) {
+  return commerce_embed_view('my_stores', 'default', array($user->uid));
+}
+
+/**
+ * Page callback for showing store products list.
+ */
+function commerce_marketplace_store_products($store) {
+  return commerce_embed_view('store_products', 'default', array($store->id));
+}
+
+/**
+ * Page callback for showing store's orders.
+ */
+function commerce_marketplace_sales($store) {
+  return commerce_embed_view('store_sales', 'default', array($store->id));
+}
+
+/**
+ * Page callback for viewing one of the store orders.
+ */
+function commerce_marketplace_view_order($order) {
+  return commerce_embed_view('store_order_view', 'default', array($order->order_id));
+}
+
+/**
+ * Implements hook_views_api().
+ */
+function commerce_marketplace_views_api() {
+  return array(
+    'api' => 3,
+  );
+}
+
+/**
+ * Implements hook_views_query_alter().
+ */
+function commerce_marketplace_views_query_alter(&$view, &$query) {
+  if ($view->name == 'my_stores' && $view->current_display == 'default') {
+    $query->where[0]['type'] = 'OR';
+  }
+}
+

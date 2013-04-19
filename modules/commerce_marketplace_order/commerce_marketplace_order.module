@@ -1,0 +1,197 @@
+<?php
+
+/**
+ * @file
+ * Includes commerce_store_order module functions.
+ */
+
+
+/**
+ * Implements hook_entity_info_alter().
+ */
+function commerce_marketplace_order_entity_info_alter(&$info) {
+  $info['commerce_order']['bundles']['commerce_marketplace_order'] = array('label' => t('Marketplace order'));
+}
+
+/**
+ * Implements hook_commerce_cart_order_id().
+ */
+function commerce_marketplace_order_commerce_cart_order_id($uid) {
+  // This function creates a new cart order everytime the user logs in! (maybe a problem with switch user block?)
+  // This check is a temporary hack to prevent it from creating extra orders.
+  if (!$uid) {
+    return NULL;
+  }
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'commerce_order')
+          ->entityCondition('bundle', 'commerce_marketplace_order')
+          ->propertyCondition('status', 'cart')
+          ->propertyCondition('uid', $uid);
+  $result = $query->execute();
+  if (isset($result['commerce_order'])) {
+    $res = array_pop($result['commerce_order']);
+    return intval($res->order_id);
+  }
+  else {
+    $order = commerce_order_new($uid, 'cart', 'commerce_marketplace_order');
+    commerce_order_save($order);
+    return intval($order->order_id);
+  }
+}
+
+/**
+ * Implements hook_commerce_cart_product_add().
+ */
+function commerce_marketplace_order_commerce_cart_product_add($order, $product, $quantity, $line_item) {
+  if ($order->type == 'commerce_marketplace_order') {
+    $store = field_get_items('commerce_product', $product, 'cmp_store');
+    if ($store) {
+      $query = new EntityFieldQuery();
+      $query->entityCondition('entity_type', 'commerce_order')
+          ->entityCondition('bundle', 'commerce_store_order')
+          ->propertyCondition('uid', $order->uid)
+          ->fieldCondition('cmp_order', 'target_id', $order->order_id)
+          ->fieldCondition('cmp_o_store', 'target_id', $store[0]['target_id']);
+      $result = $query->execute();
+      $store_order = NULL;
+      if (isset($result['commerce_order'])) {
+        $res = array_pop($result['commerce_order']);
+        $store_order = commerce_order_load($res->order_id);
+      }
+      else {
+        $store_order = commerce_order_new($order->uid, 'cart', 'commerce_store_order');
+        $store_order->cmp_o_store[LANGUAGE_NONE][0]['target_id'] = $store[0]['target_id'];
+        $store_order->cmp_order[LANGUAGE_NONE][0]['target_id'] = $order->order_id;
+        commerce_order_save($store_order);
+      }
+      $order_wrapper = entity_metadata_wrapper('commerce_order', $store_order);
+      $order_wrapper->commerce_line_items[] = $line_item;
+      $order_wrapper->save();
+    }
+  }
+}
+
+/**
+ * Implements hook_commerce_cart_product_remove().
+ */
+function commerce_marketplace_order_commerce_cart_product_remove($order, $product, $quantity, $line_item) {
+  if ($order->type == 'commerce_marketplace_order') {
+    $store = field_get_items('commerce_product', $product, 'cmp_store');
+    if ($store) {
+      $query = new EntityFieldQuery();
+      $query->entityCondition('entity_type', 'commerce_order')
+          ->entityCondition('bundle', 'commerce_store_order')
+          ->propertyCondition('uid', $order->uid)
+          ->fieldCondition('cmp_order', 'target_id', $order->order_id)
+          ->fieldCondition('cmp_o_store', 'target_id', $store[0]['target_id']);
+      $result = $query->execute();
+      $store_order = NULL;
+      if ($result['commerce_order']) {
+        $res = array_pop($result['commerce_order']);
+        $store_order = commerce_order_load($res->order_id);
+      }
+      else {
+        // Weird! why don't we already have the commerce_store_product?
+      }
+      $order_wrapper = entity_metadata_wrapper('commerce_order', $store_order);
+      foreach ($order_wrapper->commerce_line_items as $index => $line_item_wrapper) {
+        if ($line_item_wrapper->line_item_id->value() == $line_item->line_item_id) {
+          // Remove this line item!
+          unset($order_wrapper->commerce_line_items[$index]);
+          break;
+        }
+      }
+      $order_wrapper->save();
+    }
+  }
+}
+
+/**
+ * Implements hook_commerce_order_checkout_complete().
+ */
+function commerce_marketplace_order_commerce_checkout_complete($order) {
+  if ($order->type == 'commerce_marketplace_order') {
+    $query = new EntityFieldQuery();
+    $query->entityCondition('entity_type', 'commerce_order')
+        ->entityCondition('bundle', 'commerce_store_order')
+        ->propertyCondition('uid', $order->uid)
+        ->propertyCondition('status', array('pending', 'processing', 'completed'), 'NOT IN');
+    $result = $query->execute();
+    if ($result['commerce_order']) {
+      foreach ($result['commerce_order'] as $res) {
+        $store_order = commerce_order_load($res->order_id);
+        if ($store_order) {
+          // This sets the store order status to checkout_complete.
+          $store_order->status = $order->status;
+          if (isset($order->commerce_customer_billing)) {
+            $store_order->commerce_customer_billing = $order->commerce_customer_billing;
+          }
+          if (isset($order->commerce_customer_shipping)) {
+            $store_order->commerce_customer_shipping = $order->commerce_customer_shipping;
+          }
+          /**
+           * In case of having multiple shipping methods enabled,
+           * find out what shipping method and shipping service the user
+           * has selected for the original order.
+           */
+          /**
+           * Find out what to do about the flat shipping rates.
+           */
+          module_load_include('inc', 'commerce_shipping', 'commerce_shipping.rules');
+          commerce_shipping_collect_rates($store_order);
+          commerce_shipping_rate_apply($store_order);
+          commerce_order_save($store_order);
+          $transaction_id = db_select('commerce_payment_transaction', 't')
+                  ->condition('order_id', $order->order_id)
+                  ->orderBy('created', 'DESC')
+                  ->range(0, 1)
+                  ->fields('t', array('transaction_id'))
+                  ->execute()->fetchField();
+          $original_transaction = commerce_payment_transaction_load($transaction_id);
+          $transaction = commerce_payment_transaction_new('commerce_marketplace', $store_order->order_id);
+          $order_total = field_get_items('commerce_order', $store_order, 'commerce_order_total');
+          $transaction->amount = $order_total[0]['amount'];
+          $transaction->currency_code = $order_total[0]['currency_code'];
+          $transaction->status = $original_transaction->status;
+          commerce_payment_transaction_save($transaction);
+        }
+      }
+    }
+  }
+}
+
+
+/**
+ * Implements hook_commerce_order_presave().
+ * Updates commerce_store_order statuses when the original order status
+ * is updated to pending.
+ */
+function commerce_marketplace_order_commerce_order_presave($order) {
+  if ($order->type == 'commerce_marketplace_order') {
+    $query = new EntityFieldQuery();
+    $query->entityCondition('entity_type', 'commerce_order')
+        ->entityCondition('bundle', 'commerce_store_order')
+        ->propertyCondition('uid', $order->uid)
+        ->propertyCondition('status', array('pending', 'processing', 'completed'), 'NOT IN');
+    $result = $query->execute();
+    if ($result['commerce_order']) {
+      foreach ($result['commerce_order'] as $res) {
+        $store_order = commerce_order_load($res->order_id);
+        if ($store_order) {
+          // This sets the store order status to checkout_complete.
+          $store_order->status = $order->status;
+          if (isset($order->commerce_customer_billing)) {
+            $store_order->commerce_customer_billing = $order->commerce_customer_billing;
+          }
+          if (isset($order->commerce_customer_shipping)) {
+            $store_order->commerce_customer_shipping = $order->commerce_customer_shipping;
+          }
+          commerce_order_save($store_order);
+        }
+      }
+    }
+  }
+}
+
+// @todo: Define Rules actions, events and conditions for this module.
+
