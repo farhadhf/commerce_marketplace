@@ -44,7 +44,26 @@ function commerce_store_save($store) {
   }
   return entity_save('commerce_store', $store);
 }
+
 /**
- * Store specific permissions and roles (for members referencing the store
- * through cmp_m_store field)
+ * Implements hook_field_widget_info().
  */
+function commerce_store_field_helper_field_widget_info() {
+  return array(
+    'store_entityreference_hidden_widget' => array(
+      'label' => t('Do not show a widget'),
+      'field types' => array('entityreference'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_widget_form().
+ */
+function commerce_store_field_helper_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+  switch ($instance['widget']['type']) {
+    case 'store_entityreference_hidden_widget':
+      return array();
+      break;
+  }
+}
