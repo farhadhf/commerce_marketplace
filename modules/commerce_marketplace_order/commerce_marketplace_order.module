@@ -25,7 +25,7 @@ function commerce_marketplace_order_commerce_cart_order_id($uid) {
   $query = new EntityFieldQuery();
   $query->entityCondition('entity_type', 'commerce_order')
           ->entityCondition('bundle', 'commerce_marketplace_order')
-          ->propertyCondition('status', 'cart')
+          ->propertyCondition('status', array('pending', 'processing', 'completed', 'cancelled'), 'NOT IN')
           ->propertyCondition('uid', $uid);
   $result = $query->execute();
   if (isset($result['commerce_order'])) {
@@ -115,7 +115,8 @@ function commerce_marketplace_order_commerce_checkout_complete($order) {
     $query->entityCondition('entity_type', 'commerce_order')
         ->entityCondition('bundle', 'commerce_store_order')
         ->propertyCondition('uid', $order->uid)
-        ->propertyCondition('status', array('pending', 'processing', 'completed'), 'NOT IN');
+        ->fieldCondition('cmp_order', 'target_id', $order->order_id)
+        ->propertyCondition('status', array('pending', 'processing', 'completed', 'cancelled'), 'NOT IN');
     $result = $query->execute();
     if ($result['commerce_order']) {
       foreach ($result['commerce_order'] as $res) {
@@ -126,20 +127,7 @@ function commerce_marketplace_order_commerce_checkout_complete($order) {
           if (isset($order->commerce_customer_billing)) {
             $store_order->commerce_customer_billing = $order->commerce_customer_billing;
           }
-          if (isset($order->commerce_customer_shipping)) {
-            $store_order->commerce_customer_shipping = $order->commerce_customer_shipping;
-          }
-          /**
-           * In case of having multiple shipping methods enabled,
-           * find out what shipping method and shipping service the user
-           * has selected for the original order.
-           */
-          /**
-           * Find out what to do about the flat shipping rates.
-           */
-          module_load_include('inc', 'commerce_shipping', 'commerce_shipping.rules');
-          commerce_shipping_collect_rates($store_order);
-          commerce_shipping_rate_apply($store_order);
+
           commerce_order_save($store_order);
           $transaction_id = db_select('commerce_payment_transaction', 't')
                   ->condition('order_id', $order->order_id)
@@ -174,7 +162,7 @@ function commerce_marketplace_order_commerce_order_presave($order) {
         ->propertyCondition('uid', $order->uid)
         ->propertyCondition('status', array('pending', 'processing', 'completed'), 'NOT IN');
     $result = $query->execute();
-    if ($result['commerce_order']) {
+    if (isset($result['commerce_order'])) {
       foreach ($result['commerce_order'] as $res) {
         $store_order = commerce_order_load($res->order_id);
         if ($store_order) {
