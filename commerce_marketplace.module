@@ -27,7 +27,6 @@ function commerce_marketplace_permission() {
  * Implements hook_menu().
  */
 function commerce_marketplace_menu() {
-  module_load_include('inc', 'commerce_order', 'commerce_order.forms');
   $items['commerce_store/store/%commerce_store/sales'] = array(
     'title' => 'Sales',
     'page callback' => 'commerce_marketplace_sales',
@@ -52,6 +51,7 @@ function commerce_marketplace_menu() {
     'page arguments' => array('commerce_order_order_form', 4),
     'access callback' => 'commerce_marketplace_order_access',
     'access arguments' => array(2, 4, 'edit store orders'),
+    'file' => drupal_get_path('module', 'commerce_order') . '/includes/commerce_order.forms.inc',
   );
   $items['commerce_store/store/%commerce_store/products'] = array(
     'title callback' => 'commerce_marketplace_store_products_page_title',
