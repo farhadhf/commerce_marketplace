@@ -1,0 +1,9 @@
+name = Commerce marketplace shipping method
+description = Calculates store shipping rates for marketplace orders.
+package = Commerce marketplace
+dependencies[] = commerce_shipping
+dependencies[] = commerce_store
+dependencies[] = commerce_marketplace_order
+core = 7.x
+
+
