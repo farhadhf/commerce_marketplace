@@ -94,11 +94,11 @@ function commerce_store_access_order_access_callback($op, $entity = NULL, $accou
   if ($entity && $entity->type == 'commerce_store_order') {
     switch ($op) {
       case 'view':
-        commerce_store_access_user_access('view store orders', $entity, $account);
+        return commerce_store_access_user_access('view store orders', $entity, $account);
         break;
 
       case 'update':
-        commerce_store_access_user_access('edit store orders', $entity, $account);
+        return commerce_store_access_user_access('edit store orders', $entity, $account);
         break;
 
       case 'delete':
