@@ -4,12 +4,16 @@
 /**
  * @file
  * Implements general reporting functions for commerce_marketplace.
- * @todo Add flat rate shipping method support.
+ * @todo Implement commerce_marketplace_paypal
+ * @todo Fork commerce_ups and make it work with commerce_marketplace
  * @todo Implement hook_node_access for products in commerce_store_access module.
  *       Allow store members with sufficient permissions to edit products created by other members.
  * @todo Fork commerce_funds and make it work with commerce_marketplace? (commerce_marketplace_funds)
  * @todo Test the module.
  * @todo Write Documentation and comment the code.
+ *
+ * Add Per-Store confirmation links to each marketplace order, allow buyers to
+ * confirm receiving the product(s) before their payment is released to the seller.
  */
 
 /**
